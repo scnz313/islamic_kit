@@ -1,0 +1,39 @@
+# Includes the core set of recommended lints for Flutter projects.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  # The lint rules are specified in the included file.
+  rules:
+    # ===== Style Rules ===== #
+    # Use `pubspec.yaml` ordering.
+    sort_pub_dependencies: true
+    # Always use package imports for files in `lib/`.
+    always_use_package_imports: true
+    # Avoid empty else statements.
+    avoid_empty_else: true
+    # Avoid relative imports for files in `lib/`.
+    prefer_relative_imports: false
+    # Prefer final for local variables.
+    prefer_final_locals: true
+
+    # ===== Documentation ===== #
+    # Require doc comments for all public APIs.
+    public_member_api_docs: true
+
+    # ===== Usage ===== #
+    # Avoid print calls in production code.
+    avoid_print: true
+
+analyzer:
+  # Treat missing required parameters as an error.
+  errors:
+    missing_required_param: error
+    # Treat missing return types as an error.
+    missing_return: error
+    # Ensure all public members have doc comments.
+    public_member_api_docs: warning
+
+  # Exclude generated files from analysis.
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"

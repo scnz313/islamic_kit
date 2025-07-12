@@ -1,0 +1,14 @@
+{{ ... }}
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+
+	<!-- Permissions for geolocator -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs access to your location to calculate accurate prayer times and determine the Qibla direction.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>This app needs access to your location to calculate accurate prayer times and determine the Qibla direction.</string>
+
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+</dict>
+</plist>
