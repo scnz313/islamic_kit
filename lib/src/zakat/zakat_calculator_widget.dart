@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 /// A widget for calculating Zakat based on user input for different asset types.
 class ZakatCalculatorWidget extends StatefulWidget {
   /// Creates a [ZakatCalculatorWidget].
-  const ZakatCalculatorWidget({super.key});
+  const ZakatCalculatorWidget({
+    super.key,
+    this.currencySymbol = '\$',
+    this.nisabThreshold = 4000.0, // Approximate USD value
+  });
+
+  /// The currency symbol to display (default: USD)
+  final String currencySymbol;
+
+  /// The Nisab threshold in the selected currency
+  final double nisabThreshold;
 
   @override
   State<ZakatCalculatorWidget> createState() => _ZakatCalculatorWidgetState();
@@ -26,8 +35,18 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
 
   double _totalZakat = 0.0;
   bool _isCalculated = false;
+  bool _belowNisab = false;
 
-  final _currencyFormat = NumberFormat.currency(symbol: 'USD ', decimalDigits: 2);
+  late final NumberFormat _currencyFormat;
+
+  @override
+  void initState() {
+    super.initState();
+    _currencyFormat = NumberFormat.currency(
+      symbol: '${widget.currencySymbol} ',
+      decimalDigits: 2,
+    );
+  }
 
   @override
   void dispose() {
@@ -43,8 +62,12 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
     if (value == null || value.isEmpty) {
       return null; // Handled as 0, not an error
     }
-    if (double.tryParse(value) == null) {
+    final parsedValue = double.tryParse(value);
+    if (parsedValue == null) {
       return 'Please enter a valid number';
+    }
+    if (parsedValue < 0) {
+      return 'Please enter a positive number';
     }
     return null;
   }
@@ -66,6 +89,7 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
       if (hasError) {
         _isCalculated = false;
         _totalZakat = 0.0;
+        _belowNisab = false;
       } else {
         final cash = double.tryParse(_cashController.text) ?? 0.0;
         final gold = double.tryParse(_goldController.text) ?? 0.0;
@@ -76,10 +100,12 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
         final totalAssets = cash + gold + silver + investments;
         final zakatableAmount = totalAssets - debts;
 
-        if (zakatableAmount > 0) {
-          _totalZakat = zakatableAmount * 0.025;
+        if (zakatableAmount >= widget.nisabThreshold) {
+          _totalZakat = zakatableAmount * 0.025; // 2.5% Zakat rate
+          _belowNisab = false;
         } else {
           _totalZakat = 0.0;
+          _belowNisab = zakatableAmount > 0; // Show Nisab message if assets exist but below threshold
         }
         _isCalculated = true;
       }
@@ -102,6 +128,7 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
 
       _totalZakat = 0.0;
       _isCalculated = false;
+      _belowNisab = false;
     });
   }
 
@@ -171,7 +198,38 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
             ],
           ),
           const SizedBox(height: 24),
-          if (_isCalculated)
+          if (_isCalculated && _belowNisab)
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      size: 32,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Below Nisab Threshold',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Your total assets are below the Nisab threshold of ${_currencyFormat.format(widget.nisabThreshold)}. Zakat is not required.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_isCalculated && !_belowNisab && _totalZakat > 0)
             ZakatResultCard(totalZakat: _totalZakat, currencyFormat: _currencyFormat),
         ],
       ),
@@ -190,7 +248,6 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
       key: key,
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),

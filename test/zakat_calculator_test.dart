@@ -45,7 +45,7 @@ void main() {
     testWidgets('calculates zakat correctly with valid inputs', (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ZakatCalculatorWidget())));
 
-      // Enter values into the fields using their keys
+      // Enter values into the fields using their keys (total: 50000 - 5000 = 45000, above Nisab)
       await tester.enterText(find.byKey(const Key('cash_input')), '10000');
       await tester.enterText(find.byKey(const Key('gold_input')), '20000');
       await tester.enterText(find.byKey(const Key('silver_input')), '5000');
@@ -59,8 +59,8 @@ void main() {
       // Verify that the result card is now visible
       expect(find.text('Zakat Due:'), findsOneWidget);
 
-      // Verify the calculated amount
-      expect(find.text('USD 1,125.00'), findsOneWidget);
+      // Verify the calculated amount (45000 * 0.025 = 1125)
+      expect(find.text('\$ 1,125.00'), findsOneWidget);
     });
 
     testWidgets('calculates zakat as 0 if zakatable amount is negative', (WidgetTester tester) async {
@@ -72,31 +72,29 @@ void main() {
       await tester.tap(find.text('Calculate'));
       await tester.pumpAndSettle();
 
+      // With negative zakatable amount, no result card should be shown
       final resultCardFinder = find.byType(ZakatResultCard);
-      expect(resultCardFinder, findsOneWidget);
+      expect(resultCardFinder, findsNothing);
 
-      // Verify the text within the card.
-      expect(
-        find.descendant(of: resultCardFinder, matching: find.text('USD 0.00')),
-        findsOneWidget,
-      );
+      // Also no Nisab message should be shown for negative amounts
+      expect(find.text('Below Nisab Threshold'), findsNothing);
     });
 
     testWidgets('resets all fields and calculation', (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ZakatCalculatorWidget())));
 
-      // Enter a value and calculate
+      // Enter a value above Nisab threshold and calculate
       await tester.enterText(find.byKey(const Key('cash_input')), '10000');
       await tester.tap(find.text('Calculate'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // Verify calculation is shown
+      // Verify calculation is shown (10000 * 0.025 = 250)
       expect(find.text('Zakat Due:'), findsOneWidget);
-      expect(find.text('USD 250.00'), findsOneWidget);
+      expect(find.text('\$ 250.00'), findsOneWidget);
 
       // Tap the reset button
       await tester.tap(find.text('Reset'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       // Verify that the result card is hidden
       expect(find.text('Zakat Due:'), findsNothing);
@@ -115,12 +113,39 @@ void main() {
       // No validation errors should appear for empty fields.
       expect(find.text('Please enter a valid number'), findsNothing);
 
+      // With empty fields (0 total), no result card should be shown since it's below Nisab
       final resultCardFinder = find.byType(ZakatResultCard);
-      expect(resultCardFinder, findsOneWidget);
-      expect(
-        find.descendant(of: resultCardFinder, matching: find.text('USD 0.00')),
-        findsOneWidget,
-      );
+      expect(resultCardFinder, findsNothing);
+      
+      // Also no Nisab message should be shown for zero amounts
+      expect(find.text('Below Nisab Threshold'), findsNothing);
+    });
+
+    testWidgets('shows below Nisab message for amounts below threshold', (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ZakatCalculatorWidget())));
+
+      // Enter amount below Nisab threshold (default is 4000)
+      await tester.enterText(find.byKey(const Key('cash_input')), '2000');
+      await tester.tap(find.text('Calculate'));
+      await tester.pumpAndSettle();
+
+      // Should show Nisab message, not result card
+      expect(find.text('Below Nisab Threshold'), findsOneWidget);
+      expect(find.byType(ZakatResultCard), findsNothing);
+      expect(find.textContaining('Your total assets are below the Nisab threshold'), findsOneWidget);
+    });
+
+    testWidgets('shows validation error for negative numbers', (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ZakatCalculatorWidget())));
+
+      // Enter negative value
+      await tester.enterText(find.byKey(const Key('cash_input')), '-1000');
+      await tester.tap(find.text('Calculate'));
+      await tester.pumpAndSettle();
+
+      // Should show validation error
+      expect(find.text('Please enter a positive number'), findsOneWidget);
+      expect(find.byType(ZakatResultCard), findsNothing);
     });
   });
 }

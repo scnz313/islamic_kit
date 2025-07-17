@@ -113,21 +113,35 @@ class _PrayerTimeWidgetState extends State<PrayerTimeWidget> {
       nextPrayerTime = tomorrowPrayerTimes.fajr;
     } else {
       nextPrayer = _prayerTimes!.nextPrayer();
-      nextPrayerTime = _prayerTimes!.timeForPrayer(nextPrayer)!;
+      final prayerTime = _prayerTimes!.timeForPrayer(nextPrayer);
+      if (prayerTime == null) {
+        // Fallback to current time if prayer time is null
+        nextPrayerTime = now;
+      } else {
+        nextPrayerTime = prayerTime;
+      }
     }
 
     _definitiveNextPrayer = nextPrayer;
     _definitiveNextPrayerTime = nextPrayerTime;
-    _timeUntilNextPrayer = nextPrayerTime.difference(now);
+    final duration = nextPrayerTime.difference(now);
+    // Ensure duration is not negative (edge case protection)
+    _timeUntilNextPrayer = duration.isNegative ? Duration.zero : duration;
   }
 
   void _startTimer() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        setState(() {
-          _updateNextPrayerInfo();
-        });
+        final previousTimeUntilNext = _timeUntilNextPrayer;
+        _updateNextPrayerInfo();
+        
+        // Only rebuild if the displayed time has actually changed
+        if (previousTimeUntilNext == null || 
+            _timeUntilNextPrayer == null ||
+            previousTimeUntilNext.inSeconds != _timeUntilNextPrayer!.inSeconds) {
+          setState(() {});
+        }
       }
     });
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -24,11 +25,18 @@ class _QiblaCompassWidgetState extends State<QiblaCompassWidget> {
   Placemark? _placemark;
   String? _error;
   Stream<CompassEvent>? _compassStream;
+  StreamSubscription<CompassEvent>? _compassSubscription;
 
   @override
   void initState() {
     super.initState();
     _initQibla();
+  }
+
+  @override
+  void dispose() {
+    _compassSubscription?.cancel();
+    super.dispose();
   }
 
   void _initQibla() async {
