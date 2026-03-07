@@ -1,11 +1,41 @@
 import 'package:adhan/adhan.dart';
 import 'package:geolocator/geolocator.dart';
 
+/// Describes the type of failure encountered while retrieving location data.
+enum LocationIssueType {
+  /// The device location services are switched off.
+  servicesDisabled,
+
+  /// The user denied location access for the app.
+  permissionDenied,
+
+  /// The user permanently denied location access for the app.
+  permissionDeniedForever,
+
+  /// Location retrieval timed out or no fresh fix could be produced.
+  unavailable,
+}
+
+/// An exception that provides structured details for location-related failures.
+class LocationException implements Exception {
+  /// Creates a [LocationException].
+  const LocationException(this.type, this.message);
+
+  /// The classified failure type.
+  final LocationIssueType type;
+
+  /// A user-friendly error message.
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// A service class to calculate Islamic prayer times.
 class PrayerCalc {
   /// Calculates prayer times for a given date and location.
   ///
-  /// Returns a [PrayerTimes] object from the `adhan_dart` package.
+  /// Returns a [PrayerTimes] object from the `adhan` package.
   static PrayerTimes getPrayerTimes({
     required double latitude,
     required double longitude,
@@ -15,53 +45,72 @@ class PrayerCalc {
     // Get calculation parameters for the chosen method
     final params = calculationMethod.getParameters();
 
-    // Create coordinates wrapper required by adhan_dart
+    // Create the coordinate wrapper required by the adhan package.
     final coordinates = Coordinates(latitude, longitude);
 
     // Convert DateTime to DateComponents
     final dateComponents = DateComponents.from(date);
 
-    // adhan_dart >=1.1.0 expects **named** parameters
     return PrayerTimes(coordinates, dateComponents, params);
   }
 
   /// A helper to get the device's current location.
   /// Handles permissions and returns a [Position] object.
   static Future<Position> getCurrentLocation() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    // Test if location services are enabled.
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw Exception('Location services are disabled. Please enable them in your device settings.');
+      throw const LocationException(
+        LocationIssueType.servicesDisabled,
+        'Location services are disabled. Please enable them in your device settings.',
+      );
     }
 
-    permission = await Geolocator.checkPermission();
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        throw Exception('Location permissions are denied. Please enable them in your app settings.');
+        throw const LocationException(
+          LocationIssueType.permissionDenied,
+          'Location permission was denied. Please allow access to continue.',
+        );
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      throw Exception('Location permissions are permanently denied. Please enable them in your app settings.');
+      throw const LocationException(
+        LocationIssueType.permissionDeniedForever,
+        'Location permission is permanently denied. Please enable it from your app settings.',
+      );
     }
 
-    // When we reach here, permissions are granted and we can
-    // continue accessing the position of the device.
     try {
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 30),
       );
     } catch (e) {
-      // Fallback to lower accuracy if high accuracy times out
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 15),
-      );
+      try {
+        return await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 15),
+        );
+      } catch (_) {
+        final lastKnownPosition = await Geolocator.getLastKnownPosition();
+        if (lastKnownPosition != null) {
+          return lastKnownPosition;
+        }
+        throw const LocationException(
+          LocationIssueType.unavailable,
+          'Unable to determine your location right now. Please move to an open area and try again.',
+        );
+      }
     }
   }
+
+  /// Opens the app settings screen when the platform supports it.
+  static Future<bool> openAppSettings() => Geolocator.openAppSettings();
+
+  /// Opens the device location settings screen when the platform supports it.
+  static Future<bool> openLocationSettings() =>
+      Geolocator.openLocationSettings();
 }

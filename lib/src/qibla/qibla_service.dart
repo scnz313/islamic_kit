@@ -43,6 +43,40 @@ class QiblaService {
     return QiblaDetails(bearing: bearing, distance: distance);
   }
 
+  /// Returns the smallest turn needed to face the Qibla from [heading].
+  static double relativeTurnAngle({
+    required double heading,
+    required double qiblaBearing,
+  }) {
+    final normalizedHeading = heading % 360;
+    final normalizedBearing = qiblaBearing % 360;
+    return (normalizedBearing - normalizedHeading + 540) % 360 - 180;
+  }
+
+  /// Returns a cardinal direction label for the supplied [bearing].
+  static String getCardinalDirection(double bearing) {
+    const directions = <String>[
+      'N',
+      'NNE',
+      'NE',
+      'ENE',
+      'E',
+      'ESE',
+      'SE',
+      'SSE',
+      'S',
+      'SSW',
+      'SW',
+      'WSW',
+      'W',
+      'WNW',
+      'NW',
+      'NNW',
+    ];
+    final index = (((bearing % 360) / 22.5) + 0.5).floor() % directions.length;
+    return directions[index];
+  }
+
   /// Calculates the distance to the Kaaba in kilometers.
   static double _calculateDistance(double latitude, double longitude) {
     const double earthRadius = 6371; // in kilometers

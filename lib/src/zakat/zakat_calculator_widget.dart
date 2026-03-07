@@ -34,6 +34,9 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
   String? _debtsErrorText;
 
   double _totalZakat = 0.0;
+  double _totalAssets = 0.0;
+  double _totalDebts = 0.0;
+  double _zakatableAmount = 0.0;
   bool _isCalculated = false;
   bool _belowNisab = false;
 
@@ -89,6 +92,9 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
       if (hasError) {
         _isCalculated = false;
         _totalZakat = 0.0;
+        _totalAssets = 0.0;
+        _totalDebts = 0.0;
+        _zakatableAmount = 0.0;
         _belowNisab = false;
       } else {
         final cash = double.tryParse(_cashController.text) ?? 0.0;
@@ -97,15 +103,16 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
         final investments = double.tryParse(_investmentsController.text) ?? 0.0;
         final debts = double.tryParse(_debtsController.text) ?? 0.0;
 
-        final totalAssets = cash + gold + silver + investments;
-        final zakatableAmount = totalAssets - debts;
+        _totalAssets = cash + gold + silver + investments;
+        _totalDebts = debts;
+        _zakatableAmount = _totalAssets - debts;
 
-        if (zakatableAmount >= widget.nisabThreshold) {
-          _totalZakat = zakatableAmount * 0.025; // 2.5% Zakat rate
+        if (_zakatableAmount >= widget.nisabThreshold) {
+          _totalZakat = _zakatableAmount * 0.025; // 2.5% Zakat rate
           _belowNisab = false;
         } else {
           _totalZakat = 0.0;
-          _belowNisab = zakatableAmount > 0; // Show Nisab message if assets exist but below threshold
+          _belowNisab = _zakatableAmount > 0;
         }
         _isCalculated = true;
       }
@@ -127,6 +134,9 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
       _debtsErrorText = null;
 
       _totalZakat = 0.0;
+      _totalAssets = 0.0;
+      _totalDebts = 0.0;
+      _zakatableAmount = 0.0;
       _isCalculated = false;
       _belowNisab = false;
     });
@@ -139,6 +149,16 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Card(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text(
+                'Enter the current market value of each asset. Blank fields are treated as 0.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           _buildAssetInput(
             key: const Key('cash_input'),
             controller: _cashController,
@@ -198,6 +218,17 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
             ],
           ),
           const SizedBox(height: 24),
+          if (_isCalculated)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: _ZakatSummaryCard(
+                totalAssets: _totalAssets,
+                totalDebts: _totalDebts,
+                zakatableAmount: _zakatableAmount,
+                nisabThreshold: widget.nisabThreshold,
+                currencyFormat: _currencyFormat,
+              ),
+            ),
           if (_isCalculated && _belowNisab)
             Card(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -219,7 +250,38 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Your total assets are below the Nisab threshold of ${_currencyFormat.format(widget.nisabThreshold)}. Zakat is not required.',
+                      'Your net zakatable assets are below the Nisab threshold of ${_currencyFormat.format(widget.nisabThreshold)}. Zakat is not required.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_isCalculated && !_belowNisab && _totalZakat == 0)
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      size: 32,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'No Zakat Due',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Your net zakatable assets are zero or negative after debts, so no zakat is currently due.',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -272,6 +334,84 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ZakatSummaryCard extends StatelessWidget {
+  const _ZakatSummaryCard({
+    required this.totalAssets,
+    required this.totalDebts,
+    required this.zakatableAmount,
+    required this.nisabThreshold,
+    required this.currencyFormat,
+  });
+
+  final double totalAssets;
+  final double totalDebts;
+  final double zakatableAmount;
+  final double nisabThreshold;
+  final NumberFormat currencyFormat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Calculation Summary',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            _SummaryRow(
+              label: 'Total assets',
+              value: currencyFormat.format(totalAssets),
+            ),
+            _SummaryRow(
+              label: 'Debts',
+              value: currencyFormat.format(totalDebts),
+            ),
+            _SummaryRow(
+              label: 'Net zakatable assets',
+              value: currencyFormat.format(zakatableAmount),
+            ),
+            _SummaryRow(
+              label: 'Nisab threshold',
+              value: currencyFormat.format(nisabThreshold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ],
       ),
