@@ -8,16 +8,14 @@ A comprehensive Islamic toolkit for Flutter. This package provides essential wid
 
 It's designed to be simple, fully customizable, and easy to integrate into any Flutter project.
 
-<img src="https://raw.githubusercontent.com/hashimhameem/islamic_kit/main/assets/screenshots/all_features.png" width="800"/>
-
 ## Features
 
-- **Prayer Times Widget**: Displays daily prayer times based on the user's location.
-- **Qibla Compass Widget**: An animated compass that points towards the Qibla.
-- **Hijri Calendar Widget**: A simple and elegant widget to display the Hijri date.
-- **Zakat Calculator Widget**: Helps users calculate their Zakat obligation.
-- **Islamic Events Widget**: Lists important upcoming Islamic events and dates.
-- **Core Services**: Location-aware services for accurate calculations and timezone handling.
+- **Prayer Times Widget**: Displays daily prayer times based on the user's location with a live next-prayer countdown.
+- **Qibla Compass Widget**: Shows compass-based Qibla guidance on supported devices with bearing fallbacks elsewhere.
+- **Hijri Calendar Widget**: Displays Hijri months, highlights event days, and surfaces monthly event details.
+- **Zakat Calculator Widget**: Helps users calculate their Zakat obligation with a clear financial summary.
+- **Islamic Events Widget**: Lists important Islamic events, explains estimated dates, and supports local reminders.
+- **Core Services**: Location-aware services, calendar conversion helpers, Qibla math, and reminder scheduling utilities.
 - **Customizable UI**: All widgets are built to be easily themed and configured.
 
 ## Getting Started
@@ -46,7 +44,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  islamic_kit: ^0.1.0
+  islamic_kit: ^0.2.0
 ```
 
 Then, install packages from the command line:
@@ -98,11 +96,26 @@ Scaffold(
 
 For a complete, runnable example, check out the `/example` directory in this repository.
 
+## Platform setup notes
+
+### Notifications
+
+Islamic event reminders require local notification permissions.
+
+**Android (`android/app/src/main/AndroidManifest.xml`):**
+```xml
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+**iOS (`ios/Runner/Info.plist`):**
+
+Make sure local notifications are enabled for the app and request permission at runtime.
+
 ## Additional Information
 
 ### Contributing
 
-Contributions are welcome! If you have a feature request, bug report, or want to improve the code, please feel free to open a pull request or an issue on our [GitHub repository](https://github.com/hashimhameem/islamic_kit).
+Contributions are welcome! If you have a feature request, bug report, or want to improve the code, please feel free to open a pull request or an issue on our [GitHub repository](https://github.com/scnz313/islamic_kit).
 
 ### License
 

@@ -117,6 +117,9 @@ class ExampleHomePage extends StatelessWidget {
               Navigator.of(ctx).pop();
               final result =
                   await ReminderScheduler.scheduleEventReminder(nextEvent);
+              if (!context.mounted) {
+                return;
+              }
               ScaffoldMessenger.of(context)
                   .showSnackBar(SnackBar(content: Text(result.message)));
             },

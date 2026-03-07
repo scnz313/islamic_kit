@@ -1,9 +1,9 @@
 name: islamic_kit
 description: "Comprehensive Islamic toolkit for Flutter: prayer times, Qibla compass, Hijri calendar, Zakat calculator & Islamic events widgets."
 # Package links
-homepage: https://github.com/hashimhameem/islamic_kit
-repository: https://github.com/hashimhameem/islamic_kit
-issue_tracker: https://github.com/hashimhameem/islamic_kit/issues
+homepage: https://github.com/scnz313/islamic_kit
+repository: https://github.com/scnz313/islamic_kit
+issue_tracker: https://github.com/scnz313/islamic_kit/issues
 # Pub.dev search topics
 topics:
   - islamic
@@ -11,7 +11,7 @@ topics:
   - prayer-times
   - hijri
   - zakat
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ^3.8.0

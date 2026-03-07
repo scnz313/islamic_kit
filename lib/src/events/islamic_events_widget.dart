@@ -171,7 +171,7 @@ class _IslamicEventsWidgetState extends State<IslamicEventsWidget> {
               onSchedule: event.canScheduleReminder()
                   ? () {
                       unawaited(_scheduleReminder(event));
-                    },
+                    }
                   : null,
             ),
           ),

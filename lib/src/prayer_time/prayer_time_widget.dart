@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:adhan/adhan.dart';
+import 'package:flutter/foundation.dart' show ValueListenable, ValueKey;
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
@@ -338,7 +339,8 @@ class _PrayerHeader extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<CalculationMethod>(
-          value: selectedCalcMethod,
+          key: ValueKey<CalculationMethod>(selectedCalcMethod),
+          initialValue: selectedCalcMethod,
           decoration: InputDecoration(
             labelText: 'Calculation Method',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
