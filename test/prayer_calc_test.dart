@@ -1,6 +1,24 @@
+import 'dart:async';
+
 import 'package:adhan/adhan.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:islamic_kit/islamic_kit.dart';
+
+Position _fakePosition({double latitude = 40.7128, double longitude = -74.0060}) {
+  return Position(
+    latitude: latitude,
+    longitude: longitude,
+    timestamp: DateTime.utc(2024, 1, 1),
+    accuracy: 5,
+    altitude: 0,
+    altitudeAccuracy: 0,
+    heading: 0,
+    headingAccuracy: 0,
+    speed: 0,
+    speedAccuracy: 0,
+  );
+}
 
 void main() {
   group('PrayerCalc.getPrayerTimes', () {
@@ -93,6 +111,147 @@ void main() {
       expect(next.time.isAfter(times.isha), isTrue);
       // Tomorrow's Fajr should be on a later date.
       expect(next.time.day, isNot(equals(now.day)));
+    });
+  });
+
+  group('PrayerCalc.getCurrentLocation (injected fakes)', () {
+    test('throws when location services are disabled', () async {
+      expect(
+        () => PrayerCalc.getCurrentLocation(
+          isLocationServiceEnabled: () async => false,
+          checkPermission: () async => LocationPermission.always,
+          requestPermission: () async => LocationPermission.always,
+        ),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('Location services are disabled'),
+        )),
+      );
+    });
+
+    test('throws when permission is denied after requesting', () async {
+      expect(
+        () => PrayerCalc.getCurrentLocation(
+          isLocationServiceEnabled: () async => true,
+          checkPermission: () async => LocationPermission.denied,
+          requestPermission: () async => LocationPermission.denied,
+        ),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('Location permissions are denied'),
+        )),
+      );
+    });
+
+    test('throws when permission is deniedForever', () async {
+      expect(
+        () => PrayerCalc.getCurrentLocation(
+          isLocationServiceEnabled: () async => true,
+          checkPermission: () async => LocationPermission.deniedForever,
+          requestPermission: () async => LocationPermission.deniedForever,
+        ),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('permanently denied'),
+        )),
+      );
+    });
+
+    test('returns the high-accuracy position when available', () async {
+      final highAccuracyPosition = _fakePosition(latitude: 1, longitude: 2);
+      final mediumAccuracyCalls = <LocationAccuracy>[];
+      final result = await PrayerCalc.getCurrentLocation(
+        isLocationServiceEnabled: () async => true,
+        checkPermission: () async => LocationPermission.always,
+        requestPermission: () async => LocationPermission.always,
+        locationRequest: ({required accuracy, required timeLimit}) async {
+          mediumAccuracyCalls.add(accuracy);
+          return highAccuracyPosition;
+        },
+        lastKnownPosition: () async => null,
+      );
+      expect(result, same(highAccuracyPosition));
+      expect(mediumAccuracyCalls, [LocationAccuracy.high]);
+    });
+
+    test('falls back to medium accuracy when high-accuracy times out',
+        () async {
+      final fallback = _fakePosition(latitude: 10, longitude: 20);
+      final callsSeen = <LocationAccuracy>[];
+      final result = await PrayerCalc.getCurrentLocation(
+        isLocationServiceEnabled: () async => true,
+        checkPermission: () async => LocationPermission.always,
+        requestPermission: () async => LocationPermission.always,
+        locationRequest: ({required accuracy, required timeLimit}) async {
+          callsSeen.add(accuracy);
+          if (accuracy == LocationAccuracy.high) {
+            throw TimeoutException('timed out');
+          }
+          return fallback;
+        },
+        lastKnownPosition: () async => null,
+      );
+      expect(result, same(fallback));
+      expect(
+        callsSeen,
+        [LocationAccuracy.high, LocationAccuracy.medium],
+        reason: 'should have attempted high then fallen back to medium',
+      );
+    });
+
+    test(
+        'falls back to last-known position when both high and medium accuracy '
+        'fail', () async {
+      final lastKnown = _fakePosition(latitude: 30, longitude: 40);
+      final result = await PrayerCalc.getCurrentLocation(
+        isLocationServiceEnabled: () async => true,
+        checkPermission: () async => LocationPermission.always,
+        requestPermission: () async => LocationPermission.always,
+        locationRequest: ({required accuracy, required timeLimit}) async {
+          throw TimeoutException('nope');
+        },
+        lastKnownPosition: () async => lastKnown,
+      );
+      expect(result, same(lastKnown));
+    });
+
+    test('throws a user-friendly error when every source fails', () async {
+      expect(
+        () => PrayerCalc.getCurrentLocation(
+          isLocationServiceEnabled: () async => true,
+          checkPermission: () async => LocationPermission.always,
+          requestPermission: () async => LocationPermission.always,
+          locationRequest: ({required accuracy, required timeLimit}) async {
+            throw TimeoutException('nope');
+          },
+          lastKnownPosition: () async => null,
+        ),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('Could not determine your location'),
+        )),
+      );
+    });
+
+    test('requests permission only when initial checkPermission is denied',
+        () async {
+      var requestPermissionCalled = 0;
+      await PrayerCalc.getCurrentLocation(
+        isLocationServiceEnabled: () async => true,
+        checkPermission: () async => LocationPermission.always,
+        requestPermission: () async {
+          requestPermissionCalled++;
+          return LocationPermission.always;
+        },
+        locationRequest: ({required accuracy, required timeLimit}) async =>
+            _fakePosition(),
+        lastKnownPosition: () async => null,
+      );
+      expect(requestPermissionCalled, 0);
     });
   });
 }

@@ -1,5 +1,19 @@
 ## 0.2.0
 
+### New APIs
+* `HijriCalendarController` — `ChangeNotifier` + `ValueListenable<HijriCalendar>`
+  that drives `HijriCalendarWidget` programmatically. Exposes
+  `goToMonth`, `goToPreviousMonth`, `goToNextMonth` and `goToToday`.
+* `PrayerCalc.getCurrentLocation` now accepts injectable hooks
+  (`locationRequest`, `lastKnownPosition`, `isLocationServiceEnabled`,
+  `checkPermission`, `requestPermission`) so apps and tests can exercise
+  the full fallback ladder without a live platform.
+* `ReminderScheduler` gains `setDefaultLocation` /
+  `defaultLocation` and `scheduleNotification(..., location:)`, so apps
+  that pin reminders to a specific `tz.Location` (e.g. a traveler's home
+  city) no longer depend on `tz.local`. A new public
+  `resolveScheduledDate` helper returns the resolved `tz.TZDateTime`.
+
 ### Bug fixes
 * **Qibla compass (critical)**: compass rendered nothing because the widget
   referenced `assets/images/compass.svg` and `assets/images/needle.svg`, which

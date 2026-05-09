@@ -12,6 +12,12 @@ import 'package:islamic_kit/src/hijri_calendar/hijri_service.dart';
 /// `WidgetsFlutterBinding.ensureInitialized()`) before scheduling any
 /// reminders. Use [requestPermissions] to prompt the user for permission on
 /// iOS and Android 13+.
+///
+/// Reminders are scheduled in the local timezone by default. Apps that
+/// target users across multiple regions (e.g. a travel app that pins
+/// reminders to the user's home city) can pass a specific
+/// [tz.Location] to [scheduleNotification] via the `location` parameter or
+/// set a process-wide default with [setDefaultLocation].
 class ReminderScheduler {
   ReminderScheduler._();
 
@@ -27,15 +33,29 @@ class ReminderScheduler {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
+  static tz.Location? _defaultLocation;
 
   /// Whether [initialize] has completed successfully at least once.
   @visibleForTesting
   static bool get isInitialized => _initialized;
 
-  /// Test-only: reset the cached initialization state.
+  /// The [tz.Location] used by default when scheduling reminders.
+  ///
+  /// Defaults to [tz.local]. Apps can override this via [setDefaultLocation].
+  static tz.Location get defaultLocation => _defaultLocation ?? tz.local;
+
+  /// Sets the process-wide default timezone used when scheduling reminders.
+  ///
+  /// Pass `null` to revert to `tz.local`.
+  static void setDefaultLocation(tz.Location? location) {
+    _defaultLocation = location;
+  }
+
+  /// Test-only: reset the cached initialization state and default location.
   @visibleForTesting
   static void debugReset() {
     _initialized = false;
+    _defaultLocation = null;
   }
 
   /// Initializes the notification plugin and the timezone database.
@@ -68,8 +88,8 @@ class ReminderScheduler {
 
   /// Requests notification permissions on iOS and Android 13+.
   ///
-  /// Returns `true` if the user granted permission (or the platform does not
-  /// require it).
+  /// Returns `true` if the user granted permission (or the platform does
+  /// not require it).
   static Future<bool> requestPermissions() async {
     try {
       final iosGranted = await _plugin
@@ -101,8 +121,36 @@ class ReminderScheduler {
     return key.hashCode & 0x7fffffff;
   }
 
+  /// Computes the [tz.TZDateTime] at which a reminder for [event] should
+  /// fire, for the given [reminderTimeOfDay] and [location].
+  ///
+  /// Exposed for testability — the scheduling call itself requires a live
+  /// platform backend that's not available in unit tests, but the time
+  /// calculation is pure.
+  @visibleForTesting
+  static tz.TZDateTime resolveScheduledDate(
+    IslamicEvent event, {
+    Duration reminderTimeOfDay = defaultReminderTimeOfDay,
+    tz.Location? location,
+  }) {
+    final gregorian = HijriService.toGregorian(
+      event.date.hYear,
+      event.date.hMonth,
+      event.date.hDay,
+    );
+    return tz.TZDateTime(
+      location ?? defaultLocation,
+      gregorian.year,
+      gregorian.month,
+      gregorian.day,
+      reminderTimeOfDay.inHours,
+      reminderTimeOfDay.inMinutes % 60,
+    );
+  }
+
   /// Schedules a notification for [event] at [reminderTimeOfDay] on the
-  /// event's Gregorian date (local time).
+  /// event's Gregorian date, in the given [location] (defaults to
+  /// [defaultLocation]).
   ///
   /// Returns `true` if the notification was scheduled. Returns `false` if:
   ///   - the event's date is in the past, or
@@ -110,6 +158,7 @@ class ReminderScheduler {
   static Future<bool> scheduleNotification(
     IslamicEvent event, {
     Duration reminderTimeOfDay = defaultReminderTimeOfDay,
+    tz.Location? location,
   }) async {
     try {
       if (!_initialized) {
@@ -117,20 +166,13 @@ class ReminderScheduler {
         if (!ok) return false;
       }
 
-      final gregorian = HijriService.toGregorian(
-        event.date.hYear,
-        event.date.hMonth,
-        event.date.hDay,
+      final effectiveLocation = location ?? defaultLocation;
+      final scheduledDate = resolveScheduledDate(
+        event,
+        reminderTimeOfDay: reminderTimeOfDay,
+        location: effectiveLocation,
       );
-      final scheduledDate = tz.TZDateTime(
-        tz.local,
-        gregorian.year,
-        gregorian.month,
-        gregorian.day,
-        reminderTimeOfDay.inHours,
-        reminderTimeOfDay.inMinutes % 60,
-      );
-      if (scheduledDate.isBefore(tz.TZDateTime.now(tz.local))) {
+      if (scheduledDate.isBefore(tz.TZDateTime.now(effectiveLocation))) {
         return false;
       }
 

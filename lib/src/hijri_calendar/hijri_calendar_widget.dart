@@ -1,21 +1,114 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hijri/hijri_calendar.dart';
 import 'package:islamic_kit/src/date_converter/converter.dart';
 import 'package:islamic_kit/src/events/islamic_event_service.dart';
 import 'package:islamic_kit/src/hijri_calendar/hijri_service.dart';
 
+/// Controls a [HijriCalendarWidget] programmatically.
+///
+/// Attach an instance to a [HijriCalendarWidget] via the
+/// [HijriCalendarWidget.controller] parameter, and then call
+/// [goToPreviousMonth], [goToNextMonth], [goToMonth] or [goToToday] from
+/// anywhere (e.g. an `AppBar` action) to drive the visible month.
+///
+/// The controller also exposes the currently visible month as a
+/// [ValueListenable], which is useful for building synchronised headers or
+/// breadcrumb UIs.
+///
+/// Example:
+/// ```dart
+/// final controller = HijriCalendarController();
+/// // ...
+/// AppBar(actions: [
+///   IconButton(
+///     icon: const Icon(Icons.today),
+///     onPressed: controller.goToToday,
+///   ),
+/// ]),
+/// body: HijriCalendarWidget(controller: controller),
+/// ```
+///
+/// Dispose the controller in your `State.dispose` when you're done with it.
+class HijriCalendarController extends ChangeNotifier
+    implements ValueListenable<HijriCalendar> {
+  /// Creates a [HijriCalendarController].
+  ///
+  /// If [initialDate] is provided it controls which month the calendar
+  /// initially displays. Otherwise today's Hijri month is used.
+  HijriCalendarController({HijriCalendar? initialDate})
+      : _value = HijriService.firstDayOfMonth(
+          (initialDate ?? HijriCalendar.now()).hYear,
+          (initialDate ?? HijriCalendar.now()).hMonth,
+        );
+
+  HijriCalendar _value;
+
+  /// The first day of the month currently displayed.
+  @override
+  HijriCalendar get value => _value;
+
+  /// Jumps to the month ([year], [month]).
+  ///
+  /// Throws [ArgumentError] if the date is outside the supported Hijri
+  /// range — see [HijriRange].
+  void goToMonth(int year, int month) {
+    HijriService.validateDate(year, month, 1);
+    final next = HijriService.firstDayOfMonth(year, month);
+    if (next.hYear == _value.hYear && next.hMonth == _value.hMonth) return;
+    _value = next;
+    notifyListeners();
+  }
+
+  /// Navigates to the previous Hijri month, rolling over across years.
+  void goToPreviousMonth() {
+    var newMonth = _value.hMonth - 1;
+    var newYear = _value.hYear;
+    if (newMonth < 1) {
+      newMonth = 12;
+      newYear--;
+    }
+    goToMonth(newYear, newMonth);
+  }
+
+  /// Navigates to the next Hijri month, rolling over across years.
+  void goToNextMonth() {
+    var newMonth = _value.hMonth + 1;
+    var newYear = _value.hYear;
+    if (newMonth > 12) {
+      newMonth = 1;
+      newYear++;
+    }
+    goToMonth(newYear, newMonth);
+  }
+
+  /// Jumps to today's Hijri month.
+  void goToToday() {
+    final today = HijriCalendar.now();
+    goToMonth(today.hYear, today.hMonth);
+  }
+}
+
 /// A scrollable Hijri calendar widget with month navigation.
 ///
-/// The widget highlights today's date and displays a dot marker on days where
-/// an [IslamicEvent] falls. Tapping a day with an event shows a short
-/// notification with the event name.
+/// The widget highlights today's date and displays a dot marker on days
+/// where an [IslamicEvent] falls. Tapping a day with an event shows a brief
+/// snackbar with the event name and Gregorian date.
 class HijriCalendarWidget extends StatefulWidget {
   /// Creates a [HijriCalendarWidget].
   ///
-  /// If [initialDate] is provided it controls the month initially displayed.
-  /// Otherwise the widget starts on today's Hijri date.
-  const HijriCalendarWidget({super.key, HijriCalendar? initialDate})
-      : _initialDate = initialDate;
+  /// Pass a [controller] to drive the calendar programmatically. If no
+  /// controller is provided, one is created internally using [initialDate]
+  /// (falling back to today's Hijri month).
+  const HijriCalendarWidget({
+    super.key,
+    this.controller,
+    HijriCalendar? initialDate,
+  }) : _initialDate = initialDate;
+
+  /// An optional external controller. The widget will use its value as the
+  /// source of truth and listen to its notifications.
+  final HijriCalendarController? controller;
 
   final HijriCalendar? _initialDate;
 
@@ -24,68 +117,73 @@ class HijriCalendarWidget extends StatefulWidget {
 }
 
 class _HijriCalendarWidgetState extends State<HijriCalendarWidget> {
-  late HijriCalendar _hijriDate;
+  late HijriCalendarController _controller;
+  bool _ownsController = false;
   List<IslamicEvent> _events = const [];
+  int _lastLoadedYear = -1;
 
   @override
   void initState() {
     super.initState();
-    final initial = widget._initialDate ?? HijriCalendar.now();
-    _hijriDate = HijriService.firstDayOfMonth(initial.hYear, initial.hMonth);
-    _loadEventsForYear(_hijriDate.hYear);
+    _controller = widget.controller ??
+        HijriCalendarController(initialDate: widget._initialDate);
+    _ownsController = widget.controller == null;
+    _controller.addListener(_onControllerChanged);
+    _loadEventsForYear(_controller.value.hYear);
+  }
+
+  @override
+  void didUpdateWidget(covariant HijriCalendarWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      _controller.removeListener(_onControllerChanged);
+      if (_ownsController) _controller.dispose();
+      _controller = widget.controller ??
+          HijriCalendarController(initialDate: widget._initialDate);
+      _ownsController = widget.controller == null;
+      _controller.addListener(_onControllerChanged);
+      _loadEventsForYear(_controller.value.hYear);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    if (_ownsController) _controller.dispose();
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (!mounted) return;
+    setState(() {
+      _loadEventsForYear(_controller.value.hYear);
+    });
   }
 
   void _loadEventsForYear(int year) {
+    if (year == _lastLoadedYear) return;
     _events = IslamicEventService.getEventsForYear(year);
-  }
-
-  void _goToPreviousMonth() {
-    var newMonth = _hijriDate.hMonth - 1;
-    var newYear = _hijriDate.hYear;
-    if (newMonth < 1) {
-      newMonth = 12;
-      newYear--;
-    }
-    _changeMonth(newYear, newMonth);
-  }
-
-  void _goToNextMonth() {
-    var newMonth = _hijriDate.hMonth + 1;
-    var newYear = _hijriDate.hYear;
-    if (newMonth > 12) {
-      newMonth = 1;
-      newYear++;
-    }
-    _changeMonth(newYear, newMonth);
-  }
-
-  void _changeMonth(int year, int month) {
-    setState(() {
-      final previousYear = _hijriDate.hYear;
-      _hijriDate = HijriService.firstDayOfMonth(year, month);
-      if (year != previousYear) {
-        _loadEventsForYear(year);
-      }
-    });
+    _lastLoadedYear = year;
   }
 
   @override
   Widget build(BuildContext context) {
+    final hijriDate = _controller.value;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           _CalendarHeader(
-            hijriDate: _hijriDate,
-            onPreviousMonth: _goToPreviousMonth,
-            onNextMonth: _goToNextMonth,
+            hijriDate: hijriDate,
+            onPreviousMonth: _controller.goToPreviousMonth,
+            onNextMonth: _controller.goToNextMonth,
           ),
           const SizedBox(height: 16),
           const _WeekdaysHeader(),
           const SizedBox(height: 8),
           Expanded(
             child: _CalendarGrid(
-              hijriDate: _hijriDate,
+              hijriDate: hijriDate,
               events: _events,
             ),
           ),

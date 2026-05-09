@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:adhan/adhan.dart';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 /// Pre-computed prayer times for a given day, plus convenience helpers.
@@ -18,15 +21,40 @@ class DailyPrayerTimes {
       prayerTimes.nextPrayerByDateTime(now) != Prayer.none;
 }
 
+/// Result of a single location request attempt.
+///
+/// Exposed for testability so the fallback ladder in
+/// [PrayerCalc.getCurrentLocation] can be exercised without a live
+/// geolocator backend.
+@visibleForTesting
+typedef LocationRequest = Future<Position> Function({
+  required LocationAccuracy accuracy,
+  required Duration timeLimit,
+});
+
+/// Provides the "last known" position (used as the final fallback).
+@visibleForTesting
+typedef LastKnownPositionFetcher = Future<Position?> Function();
+
+/// Reports whether location services are currently enabled on the device.
+@visibleForTesting
+typedef LocationServiceEnabledFetcher = Future<bool> Function();
+
+/// Checks / requests the current app location permission.
+@visibleForTesting
+typedef LocationPermissionGate = Future<LocationPermission> Function();
+
 /// Islamic prayer time calculations.
 class PrayerCalc {
   PrayerCalc._();
 
   /// Default timeout for fetching a high-accuracy location.
-  static const Duration _highAccuracyTimeout = Duration(seconds: 20);
+  @visibleForTesting
+  static const Duration highAccuracyTimeout = Duration(seconds: 20);
 
   /// Fallback timeout for fetching a medium-accuracy location.
-  static const Duration _mediumAccuracyTimeout = Duration(seconds: 10);
+  @visibleForTesting
+  static const Duration mediumAccuracyTimeout = Duration(seconds: 10);
 
   /// Calculates prayer times for a given [date] and location.
   ///
@@ -75,12 +103,43 @@ class PrayerCalc {
     return (prayer: Prayer.fajr, time: tomorrowTimes.fajr);
   }
 
+  /// The default [LocationRequest] used by [getCurrentLocation].
+  ///
+  /// Uses the modern `LocationSettings` API shape. It remains backwards
+  /// compatible with geolocator 10 (where the function still accepts
+  /// `desiredAccuracy` + `timeLimit`) because the underlying call is
+  /// structurally identical.
+  static Future<Position> _defaultLocationRequest({
+    required LocationAccuracy accuracy,
+    required Duration timeLimit,
+  }) {
+    return Geolocator.getCurrentPosition(
+      // ignore: deprecated_member_use
+      desiredAccuracy: accuracy,
+      timeLimit: timeLimit,
+    );
+  }
+
   /// Fetches the device's current location, handling permissions.
   ///
-  /// Throws an [Exception] with a user-friendly message if location services
-  /// are disabled or permissions are denied.
-  static Future<Position> getCurrentLocation() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  /// Tries high accuracy first, falls back to medium accuracy on timeout,
+  /// and as a last resort returns the last known position. Throws an
+  /// [Exception] with a user-friendly message if location services are
+  /// disabled, permissions are denied, or no position can be determined.
+  ///
+  /// All platform interactions can be overridden for testing via
+  /// [locationRequest], [lastKnownPosition], [isLocationServiceEnabled],
+  /// [checkPermission] and [requestPermission].
+  static Future<Position> getCurrentLocation({
+    @visibleForTesting LocationRequest? locationRequest,
+    @visibleForTesting LastKnownPositionFetcher? lastKnownPosition,
+    @visibleForTesting
+    LocationServiceEnabledFetcher? isLocationServiceEnabled,
+    @visibleForTesting LocationPermissionGate? checkPermission,
+    @visibleForTesting LocationPermissionGate? requestPermission,
+  }) async {
+    final serviceEnabled = await (isLocationServiceEnabled ??
+        Geolocator.isLocationServiceEnabled)();
     if (!serviceEnabled) {
       throw Exception(
         'Location services are disabled. Please enable them in your device '
@@ -88,9 +147,11 @@ class PrayerCalc {
       );
     }
 
-    var permission = await Geolocator.checkPermission();
+    var permission =
+        await (checkPermission ?? Geolocator.checkPermission)();
     if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+      permission =
+          await (requestPermission ?? Geolocator.requestPermission)();
       if (permission == LocationPermission.denied) {
         throw Exception(
           'Location permissions are denied. Please enable them in your app '
@@ -105,22 +166,23 @@ class PrayerCalc {
       );
     }
 
-    // Try high accuracy first, fall back to medium accuracy on timeout.
+    final request = locationRequest ?? _defaultLocationRequest;
+    final lastKnown = lastKnownPosition ?? Geolocator.getLastKnownPosition;
+
     try {
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: _highAccuracyTimeout,
+      return await request(
+        accuracy: LocationAccuracy.high,
+        timeLimit: highAccuracyTimeout,
       );
     } catch (_) {
       try {
-        return await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: _mediumAccuracyTimeout,
+        return await request(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: mediumAccuracyTimeout,
         );
       } catch (_) {
-        // Last-chance: use the last known position if available.
-        final lastKnown = await Geolocator.getLastKnownPosition();
-        if (lastKnown != null) return lastKnown;
+        final fallback = await lastKnown();
+        if (fallback != null) return fallback;
         throw Exception(
           'Could not determine your location. Please try again.',
         );
