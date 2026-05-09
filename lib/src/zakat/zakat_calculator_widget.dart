@@ -1,20 +1,102 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/// A widget for calculating Zakat based on user input for different asset types.
+/// The outcome of a Zakat calculation.
+enum ZakatStatus {
+  /// No assets have been entered yet.
+  empty,
+
+  /// Total zakatable assets are below the Nisab threshold; Zakat is not due.
+  belowNisab,
+
+  /// Zakat is due on the provided assets.
+  due,
+}
+
+/// The result of a Zakat calculation.
+class ZakatResult {
+  /// Creates a [ZakatResult].
+  const ZakatResult({
+    required this.status,
+    required this.zakatableAmount,
+    required this.zakatDue,
+  });
+
+  /// The status of the calculation.
+  final ZakatStatus status;
+
+  /// Total assets minus debts. May be zero or negative.
+  final double zakatableAmount;
+
+  /// Amount of Zakat due (2.5% of [zakatableAmount] when [status] is
+  /// [ZakatStatus.due], otherwise `0`).
+  final double zakatDue;
+}
+
+/// A widget for calculating Zakat on common asset classes.
+///
+/// The widget accepts numeric input for cash, gold, silver, investments and
+/// debts. It validates non-negative numeric input and applies the standard
+/// 2.5% rate above the configured [nisabThreshold].
 class ZakatCalculatorWidget extends StatefulWidget {
   /// Creates a [ZakatCalculatorWidget].
   const ZakatCalculatorWidget({
     super.key,
     this.currencySymbol = '\$',
-    this.nisabThreshold = 4000.0, // Approximate USD value
-  });
+    this.nisabThreshold = 4000.0,
+  }) : assert(nisabThreshold >= 0,
+            'nisabThreshold must be non-negative (got $nisabThreshold)');
 
-  /// The currency symbol to display (default: USD)
+  /// The currency symbol displayed in the result card.
   final String currencySymbol;
 
-  /// The Nisab threshold in the selected currency
+  /// Nisab threshold above which Zakat is due, in the same currency unit
+  /// as the input.
   final double nisabThreshold;
+
+  /// The Zakat rate (2.5%).
+  static const double zakatRate = 0.025;
+
+  /// Computes the Zakat result from raw asset values.
+  ///
+  /// Negative inputs are treated as `0` because the widget validates them
+  /// separately and this helper is also intended for direct programmatic
+  /// use.
+  static ZakatResult calculate({
+    double cash = 0,
+    double gold = 0,
+    double silver = 0,
+    double investments = 0,
+    double debts = 0,
+    double nisabThreshold = 4000,
+  }) {
+    double nonNegative(double v) => v < 0 ? 0 : v;
+    final totalAssets = nonNegative(cash) +
+        nonNegative(gold) +
+        nonNegative(silver) +
+        nonNegative(investments);
+    final zakatable = totalAssets - nonNegative(debts);
+
+    if (totalAssets == 0 || zakatable <= 0) {
+      return ZakatResult(
+        status: ZakatStatus.empty,
+        zakatableAmount: zakatable,
+        zakatDue: 0,
+      );
+    }
+    if (zakatable < nisabThreshold) {
+      return ZakatResult(
+        status: ZakatStatus.belowNisab,
+        zakatableAmount: zakatable,
+        zakatDue: 0,
+      );
+    }
+    return ZakatResult(
+      status: ZakatStatus.due,
+      zakatableAmount: zakatable,
+      zakatDue: zakatable * zakatRate,
+    );
+  }
 
   @override
   State<ZakatCalculatorWidget> createState() => _ZakatCalculatorWidgetState();
@@ -33,10 +115,7 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
   String? _investmentsErrorText;
   String? _debtsErrorText;
 
-  double _totalZakat = 0.0;
-  bool _isCalculated = false;
-  bool _belowNisab = false;
-
+  ZakatResult? _result;
   late final NumberFormat _currencyFormat;
 
   @override
@@ -58,124 +137,122 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
     super.dispose();
   }
 
-  String? _validateNumber(String? value) {
-    if (value == null || value.isEmpty) {
-      return null; // Handled as 0, not an error
-    }
-    final parsedValue = double.tryParse(value);
-    if (parsedValue == null) {
-      return 'Please enter a valid number';
-    }
-    if (parsedValue < 0) {
-      return 'Please enter a positive number';
-    }
+  /// Parses a string, allowing optional thousands-separators (',' or ' ').
+  /// Returns `null` if parsing fails.
+  static double? _parse(String raw) {
+    if (raw.isEmpty) return 0;
+    final cleaned = raw.replaceAll(RegExp(r'[\s,]'), '');
+    return double.tryParse(cleaned);
+  }
+
+  String? _validate(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final parsed = _parse(value);
+    if (parsed == null) return 'Please enter a valid number';
+    if (parsed < 0) return 'Please enter a positive number';
     return null;
   }
 
-  void _calculateZakat() {
+  void _calculate() {
     setState(() {
-      _cashErrorText = _validateNumber(_cashController.text);
-      _goldErrorText = _validateNumber(_goldController.text);
-      _silverErrorText = _validateNumber(_silverController.text);
-      _investmentsErrorText = _validateNumber(_investmentsController.text);
-      _debtsErrorText = _validateNumber(_debtsController.text);
+      _cashErrorText = _validate(_cashController.text);
+      _goldErrorText = _validate(_goldController.text);
+      _silverErrorText = _validate(_silverController.text);
+      _investmentsErrorText = _validate(_investmentsController.text);
+      _debtsErrorText = _validate(_debtsController.text);
 
-      final bool hasError = _cashErrorText != null ||
-          _goldErrorText != null ||
-          _silverErrorText != null ||
-          _investmentsErrorText != null ||
-          _debtsErrorText != null;
+      final hasError = [
+        _cashErrorText,
+        _goldErrorText,
+        _silverErrorText,
+        _investmentsErrorText,
+        _debtsErrorText,
+      ].any((e) => e != null);
 
       if (hasError) {
-        _isCalculated = false;
-        _totalZakat = 0.0;
-        _belowNisab = false;
-      } else {
-        final cash = double.tryParse(_cashController.text) ?? 0.0;
-        final gold = double.tryParse(_goldController.text) ?? 0.0;
-        final silver = double.tryParse(_silverController.text) ?? 0.0;
-        final investments = double.tryParse(_investmentsController.text) ?? 0.0;
-        final debts = double.tryParse(_debtsController.text) ?? 0.0;
-
-        final totalAssets = cash + gold + silver + investments;
-        final zakatableAmount = totalAssets - debts;
-
-        if (zakatableAmount >= widget.nisabThreshold) {
-          _totalZakat = zakatableAmount * 0.025; // 2.5% Zakat rate
-          _belowNisab = false;
-        } else {
-          _totalZakat = 0.0;
-          _belowNisab = zakatableAmount > 0; // Show Nisab message if assets exist but below threshold
-        }
-        _isCalculated = true;
+        _result = null;
+        return;
       }
+      _result = ZakatCalculatorWidget.calculate(
+        cash: _parse(_cashController.text) ?? 0,
+        gold: _parse(_goldController.text) ?? 0,
+        silver: _parse(_silverController.text) ?? 0,
+        investments: _parse(_investmentsController.text) ?? 0,
+        debts: _parse(_debtsController.text) ?? 0,
+        nisabThreshold: widget.nisabThreshold,
+      );
     });
   }
 
-  void _resetCalculator() {
+  void _reset() {
     setState(() {
-      _cashController.clear();
-      _goldController.clear();
-      _silverController.clear();
-      _investmentsController.clear();
-      _debtsController.clear();
-
+      for (final c in [
+        _cashController,
+        _goldController,
+        _silverController,
+        _investmentsController,
+        _debtsController,
+      ]) {
+        c.clear();
+      }
       _cashErrorText = null;
       _goldErrorText = null;
       _silverErrorText = null;
       _investmentsErrorText = null;
       _debtsErrorText = null;
-
-      _totalZakat = 0.0;
-      _isCalculated = false;
-      _belowNisab = false;
+      _result = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final result = _result;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildAssetInput(
+          _assetInput(
             key: const Key('cash_input'),
             controller: _cashController,
             label: 'Cash & Bank Balance',
             icon: Icons.account_balance_wallet_outlined,
-            info: 'Includes all cash on hand and balances in your bank accounts.',
+            info:
+                'Includes all cash on hand and balances in your bank accounts.',
             errorText: _cashErrorText,
           ),
           const SizedBox(height: 8),
-          _buildAssetInput(
+          _assetInput(
             key: const Key('gold_input'),
             controller: _goldController,
             label: 'Value of Gold',
             icon: Icons.paid_outlined,
-            info: 'The market value of all gold you own above the Nisab threshold.',
+            info:
+                'The market value of all gold you own above the Nisab threshold.',
             errorText: _goldErrorText,
           ),
           const SizedBox(height: 8),
-          _buildAssetInput(
+          _assetInput(
             key: const Key('silver_input'),
             controller: _silverController,
             label: 'Value of Silver',
             icon: Icons.toll_outlined,
-            info: 'The market value of all silver you own above the Nisab threshold.',
+            info:
+                'The market value of all silver you own above the Nisab threshold.',
             errorText: _silverErrorText,
           ),
           const SizedBox(height: 8),
-          _buildAssetInput(
+          _assetInput(
             key: const Key('investments_input'),
             controller: _investmentsController,
             label: 'Investments',
             icon: Icons.trending_up,
-            info: 'Value of stocks, mutual funds, and other investments intended for growth.',
+            info:
+                'Value of stocks, mutual funds, and other investments intended for growth.',
             errorText: _investmentsErrorText,
           ),
           const SizedBox(height: 8),
-          _buildAssetInput(
+          _assetInput(
             key: const Key('debts_input'),
             controller: _debtsController,
             label: 'Debts & Liabilities',
@@ -188,55 +265,32 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ElevatedButton(
-                onPressed: _calculateZakat,
+                onPressed: _calculate,
                 child: const Text('Calculate'),
               ),
               TextButton(
-                onPressed: _resetCalculator,
+                onPressed: _reset,
                 child: const Text('Reset'),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          if (_isCalculated && _belowNisab)
-            Card(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      size: 32,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Below Nisab Threshold',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Your total assets are below the Nisab threshold of ${_currencyFormat.format(widget.nisabThreshold)}. Zakat is not required.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          if (result != null && result.status == ZakatStatus.belowNisab)
+            _BelowNisabCard(
+              nisabThreshold: widget.nisabThreshold,
+              currencyFormat: _currencyFormat,
             ),
-          if (_isCalculated && !_belowNisab && _totalZakat > 0)
-            ZakatResultCard(totalZakat: _totalZakat, currencyFormat: _currencyFormat),
+          if (result != null && result.status == ZakatStatus.due)
+            ZakatResultCard(
+              totalZakat: result.zakatDue,
+              currencyFormat: _currencyFormat,
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildAssetInput({
+  Widget _assetInput({
     required Key key,
     required TextEditingController controller,
     required String label,
@@ -252,9 +306,11 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
         labelText: label,
         prefixIcon: Icon(icon),
         border: const OutlineInputBorder(),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         suffixIcon: IconButton(
           icon: const Icon(Icons.info_outline),
+          tooltip: 'More info',
           onPressed: () => _showInfoDialog(context, label, info),
         ),
         errorText: errorText,
@@ -263,7 +319,7 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
   }
 
   void _showInfoDialog(BuildContext context, String title, String content) {
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
@@ -274,6 +330,51 @@ class _ZakatCalculatorWidgetState extends State<ZakatCalculatorWidget> {
             child: const Text('OK'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BelowNisabCard extends StatelessWidget {
+  const _BelowNisabCard({
+    required this.nisabThreshold,
+    required this.currencyFormat,
+  });
+
+  final double nisabThreshold;
+  final NumberFormat currencyFormat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Icon(
+              Icons.info_outline,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              size: 32,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Below Nisab Threshold',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your total assets are below the Nisab threshold of '
+              '${currencyFormat.format(nisabThreshold)}. Zakat is not required.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -300,7 +401,7 @@ class ZakatResultCard extends StatelessWidget {
       elevation: 4,
       color: Theme.of(context).colorScheme.primaryContainer,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             Text(

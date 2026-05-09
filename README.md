@@ -8,8 +8,6 @@ A comprehensive Islamic toolkit for Flutter. This package provides essential wid
 
 It's designed to be simple, fully customizable, and easy to integrate into any Flutter project.
 
-<img src="https://raw.githubusercontent.com/hashimhameem/islamic_kit/main/assets/screenshots/all_features.png" width="800"/>
-
 ## Features
 
 - **Prayer Times Widget**: Displays daily prayer times based on the user's location.
@@ -46,7 +44,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  islamic_kit: ^0.1.0
+  islamic_kit: ^0.2.0
 ```
 
 Then, install packages from the command line:

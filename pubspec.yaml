@@ -11,7 +11,7 @@ topics:
   - prayer-times
   - hijri
   - zakat
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ^3.8.0
@@ -23,7 +23,6 @@ dependencies:
     sdk: flutter
   flutter_compass: ^0.7.0
   flutter_local_notifications: ^17.0.0
-  flutter_svg: ^2.0.7
   geocoding: ^2.1.0
   geolocator: ^10.1.0
   hijri: ^3.0.0
@@ -40,13 +39,7 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
-  # To add assets to your package, add an assets section, like this:
-  assets:
-    - assets/
-  #
-  # For details regarding assets in packages, see
-  # https://flutter.dev/assets-and-images/#from-packages
+  # This package draws its UI entirely in code (no asset dependencies).
 
   # To add custom fonts to your package, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a

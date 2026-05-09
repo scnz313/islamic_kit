@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:hijri/hijri_calendar.dart';
+import 'package:islamic_kit/src/date_converter/converter.dart';
 import 'package:islamic_kit/src/events/islamic_event_service.dart';
+import 'package:islamic_kit/src/hijri_calendar/hijri_service.dart';
 
-/// A widget that displays a scrollable Hijri calendar.
+/// A scrollable Hijri calendar widget with month navigation.
+///
+/// The widget highlights today's date and displays a dot marker on days where
+/// an [IslamicEvent] falls. Tapping a day with an event shows a short
+/// notification with the event name.
 class HijriCalendarWidget extends StatefulWidget {
   /// Creates a [HijriCalendarWidget].
-  const HijriCalendarWidget({super.key});
+  ///
+  /// If [initialDate] is provided it controls the month initially displayed.
+  /// Otherwise the widget starts on today's Hijri date.
+  const HijriCalendarWidget({super.key, HijriCalendar? initialDate})
+      : _initialDate = initialDate;
+
+  final HijriCalendar? _initialDate;
 
   @override
   State<HijriCalendarWidget> createState() => _HijriCalendarWidgetState();
@@ -13,54 +25,46 @@ class HijriCalendarWidget extends StatefulWidget {
 
 class _HijriCalendarWidgetState extends State<HijriCalendarWidget> {
   late HijriCalendar _hijriDate;
-  List<IslamicEvent> _events = [];
+  List<IslamicEvent> _events = const [];
 
   @override
   void initState() {
     super.initState();
-    _hijriDate = HijriCalendar.now();
-    _fetchEventsForYear(_hijriDate.hYear);
+    final initial = widget._initialDate ?? HijriCalendar.now();
+    _hijriDate = HijriService.firstDayOfMonth(initial.hYear, initial.hMonth);
+    _loadEventsForYear(_hijriDate.hYear);
   }
 
-  Future<void> _fetchEventsForYear(int year) async {
-    final events = IslamicEventService.getEventsForYear(year);
-    if (mounted) {
-      setState(() {
-        _events = events;
-      });
-    }
+  void _loadEventsForYear(int year) {
+    _events = IslamicEventService.getEventsForYear(year);
   }
 
   void _goToPreviousMonth() {
-    setState(() {
-      final currentYear = _hijriDate.hYear;
-      var newMonth = _hijriDate.hMonth - 1;
-      var newYear = _hijriDate.hYear;
-      if (newMonth < 1) {
-        newMonth = 12;
-        newYear--;
-      }
-      _hijriDate = HijriCalendar()..hYear = newYear..hMonth = newMonth..hDay = 1;
-
-      if (newYear != currentYear) {
-        _fetchEventsForYear(newYear);
-      }
-    });
+    var newMonth = _hijriDate.hMonth - 1;
+    var newYear = _hijriDate.hYear;
+    if (newMonth < 1) {
+      newMonth = 12;
+      newYear--;
+    }
+    _changeMonth(newYear, newMonth);
   }
 
   void _goToNextMonth() {
-    setState(() {
-      final currentYear = _hijriDate.hYear;
-      var newMonth = _hijriDate.hMonth + 1;
-      var newYear = _hijriDate.hYear;
-      if (newMonth > 12) {
-        newMonth = 1;
-        newYear++;
-      }
-      _hijriDate = HijriCalendar()..hYear = newYear..hMonth = newMonth..hDay = 1;
+    var newMonth = _hijriDate.hMonth + 1;
+    var newYear = _hijriDate.hYear;
+    if (newMonth > 12) {
+      newMonth = 1;
+      newYear++;
+    }
+    _changeMonth(newYear, newMonth);
+  }
 
-      if (newYear != currentYear) {
-        _fetchEventsForYear(newYear);
+  void _changeMonth(int year, int month) {
+    setState(() {
+      final previousYear = _hijriDate.hYear;
+      _hijriDate = HijriService.firstDayOfMonth(year, month);
+      if (year != previousYear) {
+        _loadEventsForYear(year);
       }
     });
   }
@@ -68,7 +72,7 @@ class _HijriCalendarWidgetState extends State<HijriCalendarWidget> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           _CalendarHeader(
@@ -109,10 +113,11 @@ class _CalendarHeader extends StatelessWidget {
       children: [
         IconButton(
           icon: const Icon(Icons.arrow_back_ios),
+          tooltip: 'Previous month',
           onPressed: onPreviousMonth,
         ),
         Text(
-          hijriDate.toFormat("MMMM yyyy"),
+          hijriDate.toFormat('MMMM yyyy'),
           style: Theme.of(context)
               .textTheme
               .headlineSmall
@@ -120,6 +125,7 @@ class _CalendarHeader extends StatelessWidget {
         ),
         IconButton(
           icon: const Icon(Icons.arrow_forward_ios),
+          tooltip: 'Next month',
           onPressed: onNextMonth,
         ),
       ],
@@ -132,50 +138,38 @@ class _WeekdaysHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: weekdays
-          .map((day) => Text(day, style: const TextStyle(fontWeight: FontWeight.bold)))
+          .map(
+            (day) => Expanded(
+              child: Center(
+                child: Text(
+                  day,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          )
           .toList(),
     );
   }
 }
 
 class _CalendarGrid extends StatelessWidget {
-  const _CalendarGrid({
-    required this.hijriDate,
-    required this.events,
-  });
+  const _CalendarGrid({required this.hijriDate, required this.events});
 
   final HijriCalendar hijriDate;
   final List<IslamicEvent> events;
 
-  bool _isToday(int day) {
-    final now = HijriCalendar.now();
-    return hijriDate.hYear == now.hYear &&
-        hijriDate.hMonth == now.hMonth &&
-        day == now.hDay;
-  }
-
-  IslamicEvent? _getEventForDay(int day) {
-    try {
-      return events.firstWhere((event) =>
-          event.date.hYear == hijriDate.hYear &&
-          event.date.hMonth == hijriDate.hMonth &&
-          event.date.hDay == day);
-    } catch (e) {
-      return null;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final daysInMonth = hijriDate.lengthOfMonth;
-    final firstDayOfMonth =
-        HijriCalendar()..hYear = hijriDate.hYear..hMonth = hijriDate.hMonth..hDay = 1;
-    final int weekDay = firstDayOfMonth.weekDay();
-    final int emptyCells = weekDay % 7;
+    // [HijriCalendar.weekDay()] returns 1..7 with Monday == 1. We lay the
+    // grid out Sun..Sat so convert to 0..6 with Sunday == 0.
+    final int mondayIndex = hijriDate.weekDay();
+    final int emptyCells = mondayIndex % 7;
 
     return GridView.builder(
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -186,27 +180,35 @@ class _CalendarGrid extends StatelessWidget {
         if (index < emptyCells) {
           return const SizedBox.shrink();
         }
-
         final day = index - emptyCells + 1;
         final isToday = _isToday(day);
         final event = _getEventForDay(day);
-
-        return _CalendarDay(
-          day: day,
-          isToday: isToday,
-          event: event,
-        );
+        return _CalendarDay(day: day, isToday: isToday, event: event);
       },
     );
+  }
+
+  bool _isToday(int day) {
+    final now = HijriCalendar.now();
+    return hijriDate.hYear == now.hYear &&
+        hijriDate.hMonth == now.hMonth &&
+        day == now.hDay;
+  }
+
+  IslamicEvent? _getEventForDay(int day) {
+    for (final event in events) {
+      if (event.date.hYear == hijriDate.hYear &&
+          event.date.hMonth == hijriDate.hMonth &&
+          event.date.hDay == day) {
+        return event;
+      }
+    }
+    return null;
   }
 }
 
 class _CalendarDay extends StatelessWidget {
-  const _CalendarDay({
-    required this.day,
-    required this.isToday,
-    this.event,
-  });
+  const _CalendarDay({required this.day, required this.isToday, this.event});
 
   final int day;
   final bool isToday;
@@ -217,9 +219,18 @@ class _CalendarDay extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         if (event != null) {
+          final gregorian = IslamicDateConverter.hijriToGregorian(
+            event!.date.hYear,
+            event!.date.hMonth,
+            event!.date.hDay,
+          );
+          final formattedGregorian =
+              '${gregorian.day}/${gregorian.month}/${gregorian.year}';
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text('${event!.name} on ${event!.date.toFormat("dd MMMM")}')),
+              content: Text('${event!.name} ($formattedGregorian)'),
+              duration: const Duration(seconds: 2),
+            ),
           );
         }
       },

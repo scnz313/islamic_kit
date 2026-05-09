@@ -1,65 +1,111 @@
 import 'dart:math';
 
-/// A data class to hold the Qibla bearing and distance.
-class QiblaDetails {
-  /// Creates a [QiblaDetails] object.
-  QiblaDetails({required this.bearing, required this.distance});
+/// The geographic coordinates of the Kaaba in Makkah.
+///
+/// These coordinates are used as the target when computing Qibla bearings.
+class KaabaLocation {
+  /// Latitude of the Kaaba in decimal degrees.
+  static const double latitude = 21.4225;
 
-  /// The bearing to the Kaaba in degrees from North.
-  final double bearing;
-
-  /// The distance to the Kaaba in kilometers.
-  final double distance;
+  /// Longitude of the Kaaba in decimal degrees.
+  static const double longitude = 39.8262;
 }
 
-/// A service class to calculate the Qibla direction.
-class QiblaService {
-  static const double _kaabaLatitude = 21.422487;
-  static const double _kaabaLongitude = 39.826206;
-
-  /// Calculates the Qibla bearing in degrees from North.
+/// The bearing and distance from an origin to the Kaaba.
+class QiblaDetails {
+  /// Creates a [QiblaDetails] object.
   ///
-  /// Takes the device's current [latitude] and [longitude] as input.
-  static double getBearing(double latitude, double longitude) {
-    final double latRad = latitude * (pi / 180);
-    final double lonRad = longitude * (pi / 180);
-    const double kaabaLatRad = _kaabaLatitude * (pi / 180);
-    const double kaabaLonRad = _kaabaLongitude * (pi / 180);
+  /// [bearing] is expressed in degrees clockwise from North in `[0, 360)`.
+  /// [distance] is the great-circle distance to the Kaaba in kilometers.
+  const QiblaDetails({required this.bearing, required this.distance})
+      : assert(bearing >= 0 && bearing < 360,
+            'bearing must be within [0, 360)'),
+        assert(distance >= 0, 'distance must be non-negative');
 
-    final double lonDiff = kaabaLonRad - lonRad;
+  /// The bearing to the Kaaba in degrees from North, in `[0, 360)`.
+  final double bearing;
 
-    final double y = sin(lonDiff) * cos(kaabaLatRad);
-    final double x =
-        cos(latRad) * sin(kaabaLatRad) - sin(latRad) * cos(kaabaLatRad) * cos(lonDiff);
+  /// The great-circle distance to the Kaaba in kilometers.
+  final double distance;
 
-    final double bearing = atan2(y, x);
-    return (bearing * (180 / pi) + 360) % 360;
+  @override
+  String toString() =>
+      'QiblaDetails(bearing: ${bearing.toStringAsFixed(2)}°, '
+      'distance: ${distance.toStringAsFixed(2)} km)';
+
+  @override
+  bool operator ==(Object other) =>
+      other is QiblaDetails &&
+      other.bearing == bearing &&
+      other.distance == distance;
+
+  @override
+  int get hashCode => Object.hash(bearing, distance);
+}
+
+/// Calculates the Qibla direction from any point on Earth.
+class QiblaService {
+  static const double _earthRadiusKm = 6371.0088;
+
+  static void _validateCoordinates(double latitude, double longitude) {
+    if (latitude.isNaN || longitude.isNaN) {
+      throw ArgumentError('Latitude and longitude must be finite numbers.');
+    }
+    if (latitude < -90 || latitude > 90) {
+      throw ArgumentError(
+          'Latitude must be between -90 and 90 degrees (got $latitude).');
+    }
+    if (longitude < -180 || longitude > 180) {
+      throw ArgumentError(
+          'Longitude must be between -180 and 180 degrees (got $longitude).');
+    }
   }
 
-  /// Calculates both the bearing and distance to the Kaaba.
+  /// Calculates the initial great-circle bearing from ([latitude], [longitude])
+  /// to the Kaaba.
+  ///
+  /// Returns the bearing in degrees clockwise from North in the range
+  /// `[0, 360)`. Throws [ArgumentError] if the coordinates are out of range.
+  static double getBearing(double latitude, double longitude) {
+    _validateCoordinates(latitude, longitude);
+
+    final lat1 = latitude * pi / 180;
+    final lon1 = longitude * pi / 180;
+    const lat2 = KaabaLocation.latitude * pi / 180;
+    const lon2 = KaabaLocation.longitude * pi / 180;
+    final dLon = lon2 - lon1;
+
+    final y = sin(dLon) * cos(lat2);
+    final x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+
+    final bearing = atan2(y, x) * 180 / pi;
+    final mod = bearing % 360;
+    return mod < 0 ? mod + 360 : mod;
+  }
+
+  /// Calculates both the bearing and distance to the Kaaba from
+  /// ([latitude], [longitude]).
   static QiblaDetails getQiblaDetails(double latitude, double longitude) {
+    _validateCoordinates(latitude, longitude);
     final bearing = getBearing(latitude, longitude);
     final distance = _calculateDistance(latitude, longitude);
     return QiblaDetails(bearing: bearing, distance: distance);
   }
 
-  /// Calculates the distance to the Kaaba in kilometers.
+  /// Great-circle distance (Haversine) to the Kaaba in kilometers.
   static double _calculateDistance(double latitude, double longitude) {
-    const double earthRadius = 6371; // in kilometers
+    final lat1 = latitude * pi / 180;
+    final lon1 = longitude * pi / 180;
+    const lat2 = KaabaLocation.latitude * pi / 180;
+    const lon2 = KaabaLocation.longitude * pi / 180;
 
-    final double latRad1 = latitude * (pi / 180);
-    final double lonRad1 = longitude * (pi / 180);
-    const double latRad2 = _kaabaLatitude * (pi / 180);
-    const double lonRad2 = _kaabaLongitude * (pi / 180);
+    final dLat = lat2 - lat1;
+    final dLon = lon2 - lon1;
 
-    final double dLat = latRad2 - latRad1;
-    final double dLon = lonRad2 - lonRad1;
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
 
-    final double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(latRad1) * cos(latRad2) * sin(dLon / 2) * sin(dLon / 2);
-    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-
-    return earthRadius * c;
+    return _earthRadiusKm * c;
   }
 }
-

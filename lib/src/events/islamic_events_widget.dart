@@ -1,14 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:hijri/hijri_calendar.dart';
 import 'package:intl/intl.dart';
-import 'package:islamic_kit/islamic_kit.dart';
 
-/// A widget that displays a list of important Islamic events for the current Hijri year.
+import 'package:islamic_kit/src/events/islamic_event_service.dart';
+import 'package:islamic_kit/src/events/reminder_scheduler.dart';
+
+/// Callback used by [IslamicEventsWidget] to respond to reminder taps.
+typedef IslamicEventCallback = Future<void> Function(IslamicEvent event);
+
+/// Displays a list of major Islamic events for the current Hijri year.
 ///
-/// Each event shows its name, Hijri date, corresponding Gregorian date, and an
-/// icon. Users can set a notification reminder for each event.
+/// Each row shows the event name, Hijri date and corresponding Gregorian
+/// date, plus a button to schedule a local notification reminder.
 class IslamicEventsWidget extends StatefulWidget {
-    /// Creates an [IslamicEventsWidget].
-  const IslamicEventsWidget({super.key});
+  /// Creates an [IslamicEventsWidget].
+  ///
+  /// Pass [year] to display events for a specific Hijri year. Defaults to
+  /// the current Hijri year.
+  ///
+  /// Pass [onReminderTap] to override the default behaviour (scheduling a
+  /// local notification via [ReminderScheduler]). Useful for tests.
+  const IslamicEventsWidget({
+    super.key,
+    this.year,
+    this.onReminderTap,
+  });
+
+  /// Hijri year to display. Defaults to the current year.
+  final int? year;
+
+  /// Optional override for the reminder tap handler. Defaults to scheduling
+  /// a local notification via [ReminderScheduler].
+  final IslamicEventCallback? onReminderTap;
 
   @override
   State<IslamicEventsWidget> createState() => _IslamicEventsWidgetState();
@@ -20,22 +43,37 @@ class _IslamicEventsWidgetState extends State<IslamicEventsWidget> {
   @override
   void initState() {
     super.initState();
-    // Initialize the scheduler statically
-    ReminderScheduler.initialize();
-    _events = IslamicEventService.getEventsForYear(HijriCalendar.now().hYear);
+    final year = widget.year ?? HijriCalendar.now().hYear;
+    _events = IslamicEventService.getEventsForYear(year);
   }
 
-  IconData _getIconForEvent(String eventName) {
-    if (eventName.contains('New Year')) return Icons.celebration;
-    if (eventName.contains('Ashura')) return Icons.water_drop_outlined;
-    if (eventName.contains('Mawlid')) return Icons.cake;
-    if (eventName.contains('Isra and Mi\'raj')) return Icons.nightlight_round;
-    if (eventName.contains('Ramadan')) return Icons.no_food; // Corrected icon
-    if (eventName.contains('Laylat al-Qadr')) return Icons.star;
-    if (eventName.contains('Eid al-Fitr')) return Icons.card_giftcard;
-    if (eventName.contains('Arafah')) return Icons.landscape;
-    if (eventName.contains('Eid al-Adha')) return Icons.pets;
+  static IconData _iconFor(String name) {
+    if (name.contains('New Year')) return Icons.celebration;
+    if (name.contains('Ashura')) return Icons.water_drop_outlined;
+    if (name.contains('Mawlid')) return Icons.cake;
+    if (name.contains("Isra")) return Icons.nightlight_round;
+    if (name.contains('Ramadan')) return Icons.no_food;
+    if (name.contains('Laylat')) return Icons.star;
+    if (name.contains('Fitr')) return Icons.card_giftcard;
+    if (name.contains('Arafah')) return Icons.landscape;
+    if (name.contains('Adha')) return Icons.pets;
     return Icons.event;
+  }
+
+  Future<void> _handleReminderTap(IslamicEvent event) async {
+    final handler = widget.onReminderTap ??
+        (IslamicEvent e) async {
+          await ReminderScheduler.initialize();
+          await ReminderScheduler.scheduleNotification(e);
+        };
+    await handler(event);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Reminder set for ${event.name}'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -44,54 +82,53 @@ class _IslamicEventsWidgetState extends State<IslamicEventsWidget> {
       itemCount: _events.length,
       itemBuilder: (context, index) {
         final event = _events[index];
-        final gregorianDate = IslamicDateConverter.hijriToGregorian(
-          event.date.hYear,
-          event.date.hMonth,
-          event.date.hDay,
-        );
-        final formattedHijriDate = event.date.toFormat('d MMMM, yyyy');
-        final formattedGregorianDate =
-            DateFormat('EEEE, d MMMM yyyy').format(gregorianDate);
-
+        final gregorian = event.gregorianDate;
+        final formattedHijri = event.date.toFormat('d MMMM, yyyy');
+        final formattedGregorian =
+            DateFormat('EEEE, d MMMM yyyy').format(gregorian);
         return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          elevation: 2.0,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ListTile(
-            contentPadding: const EdgeInsets.all(16.0),
-            leading: Icon(_getIconForEvent(event.name),
-                size: 40, color: Theme.of(context).colorScheme.primary),
+            contentPadding: const EdgeInsets.all(16),
+            leading: Icon(
+              _iconFor(event.name),
+              size: 40,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             title: Text(
               event.name,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
             subtitle: Padding(
-              padding: const EdgeInsets.only(top: 8.0),
+              padding: const EdgeInsets.only(top: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    formattedHijriDate,
+                    formattedHijri,
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context)
                           .textTheme
                           .bodySmall
                           ?.color
-                          ?.withAlpha(178),
+                          ?.withValues(alpha: 0.7),
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Corresponds to: $formattedGregorianDate',
+                    'Corresponds to: $formattedGregorian',
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context)
                           .textTheme
                           .bodySmall
                           ?.color
-                          ?.withAlpha(178),
+                          ?.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
@@ -99,16 +136,8 @@ class _IslamicEventsWidgetState extends State<IslamicEventsWidget> {
             ),
             trailing: IconButton(
               icon: const Icon(Icons.notifications_active),
-              onPressed: () {
-                // Call the static method with the correct parameter
-                ReminderScheduler.scheduleNotification(event);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Reminder set for ${event.name}'),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              },
+              tooltip: 'Set reminder',
+              onPressed: () => _handleReminderTap(event),
             ),
           ),
         );

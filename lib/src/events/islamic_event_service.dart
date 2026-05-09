@@ -1,57 +1,85 @@
 import 'package:hijri/hijri_calendar.dart';
+import 'package:islamic_kit/src/hijri_calendar/hijri_service.dart';
 
-/// Represents a significant Islamic event.
+/// A significant Islamic event.
 class IslamicEvent {
-  /// The name of the event (e.g., 'Eid al-Fitr').
+  /// Creates an [IslamicEvent] with a given [name] and Hijri [date].
+  const IslamicEvent(this.name, this.date);
+
+  /// The name of the event (e.g. "Eid al-Fitr").
   final String name;
 
-  /// The date of the event in the Hijri calendar.
+  /// The Hijri date of the event.
   final HijriCalendar date;
 
-  /// Creates an [IslamicEvent] with a given [name] and [date].
-  IslamicEvent(this.name, this.date);
+  /// Returns the Gregorian [DateTime] that corresponds to [date].
+  DateTime get gregorianDate => HijriService.toGregorian(
+        date.hYear,
+        date.hMonth,
+        date.hDay,
+      );
+
+  @override
+  String toString() =>
+      'IslamicEvent($name, ${date.hDay}/${date.hMonth}/${date.hYear} AH)';
 }
 
-/// A service to find Islamic events within a given year.
+/// Lookups for major Islamic events.
 class IslamicEventService {
-  /// Returns a list of major Islamic events for a given Hijri year.
+  IslamicEventService._();
+
+  /// Definitions of major annual Islamic events, as `(name, month, day)` in
+  /// the Hijri calendar. The list is ordered by (month, day).
+  static const List<(String, int, int)> _eventDefinitions = [
+    ('Islamic New Year', 1, 1),
+    ('Day of Ashura', 1, 10),
+    ("Mawlid al-Nabi", 3, 12),
+    ("Isra and Mi'raj", 7, 27),
+    ('Start of Ramadan', 9, 1),
+    ('Laylat al-Qadr', 9, 27),
+    ('Eid al-Fitr', 10, 1),
+    ('Day of Arafah', 12, 9),
+    ('Eid al-Adha', 12, 10),
+  ];
+
+  /// Returns the list of supported major Islamic event names.
+  static List<String> get knownEventNames =>
+      _eventDefinitions.map((e) => e.$1).toList(growable: false);
+
+  /// Returns a list of major Islamic events for the given Hijri [year].
+  ///
+  /// Throws [ArgumentError] if [year] is outside the supported Hijri range
+  /// (see [HijriRange]).
   static List<IslamicEvent> getEventsForYear(int year) {
-    final events = [
-      IslamicEvent('Islamic New Year', _createHijriDate(year, 1, 1)),
-      IslamicEvent('Day of Ashura', _createHijriDate(year, 1, 10)),
-      IslamicEvent('Mawlid al-Nabi', _createHijriDate(year, 3, 12)),
-      IslamicEvent('Isra and Mi\'raj', _createHijriDate(year, 7, 27)),
-      IslamicEvent('Start of Ramadan', _createHijriDate(year, 9, 1)),
-      IslamicEvent('Laylat al-Qadr', _createHijriDate(year, 9, 27)),
-      IslamicEvent('Eid al-Fitr', _createHijriDate(year, 10, 1)),
-      IslamicEvent('Day of Arafah', _createHijriDate(year, 12, 9)),
-      IslamicEvent('Eid al-Adha', _createHijriDate(year, 12, 10)),
-    ];
-    return events;
+    if (year < HijriRange.minYear || year > HijriRange.maxYear) {
+      throw ArgumentError(
+          'Hijri year $year is out of supported range '
+          '(${HijriRange.minYear}–${HijriRange.maxYear}).');
+    }
+    return _eventDefinitions
+        .map((def) => IslamicEvent(
+              def.$1,
+              HijriService.fromDate(year, def.$2, def.$3),
+            ))
+        .toList(growable: false);
   }
 
-  /// Helper method to create a HijriCalendar with specific date values.
-  /// Validates input parameters to ensure valid Hijri dates.
-  static HijriCalendar _createHijriDate(int year, int month, int day) {
-    // Validate year (reasonable range)
-    if (year < 1 || year > 2000) {
-      throw ArgumentError('Invalid Hijri year: $year. Must be between 1 and 2000.');
+  /// Returns the next upcoming [IslamicEvent] on or after [from], looking
+  /// up to [yearsAhead] Hijri years ahead. Returns `null` if no event is
+  /// found within the supported range.
+  static IslamicEvent? nextEvent({DateTime? from, int yearsAhead = 2}) {
+    final reference = from ?? DateTime.now();
+    final startHijri = HijriService.toHijri(reference);
+    for (var y = startHijri.hYear;
+        y <= startHijri.hYear + yearsAhead && y <= HijriRange.maxYear;
+        y++) {
+      for (final event in getEventsForYear(y)) {
+        if (!event.gregorianDate.isBefore(
+            DateTime(reference.year, reference.month, reference.day))) {
+          return event;
+        }
+      }
     }
-    
-    // Validate month (1-12)
-    if (month < 1 || month > 12) {
-      throw ArgumentError('Invalid Hijri month: $month. Must be between 1 and 12.');
-    }
-    
-    // Validate day (1-30, as Hijri months can have 29 or 30 days)
-    if (day < 1 || day > 30) {
-      throw ArgumentError('Invalid Hijri day: $day. Must be between 1 and 30.');
-    }
-    
-    final hijriDate = HijriCalendar();
-    hijriDate.hYear = year;
-    hijriDate.hMonth = month;
-    hijriDate.hDay = day;
-    return hijriDate;
+    return null;
   }
 }
